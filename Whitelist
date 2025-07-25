@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# 严格模式设置
+set -euo pipefail
+
+# 自动切换到脚本所在目录（仅交互式shell不执行）
+[[ $- != *i* ]] && cd "$(dirname "$0")"
+
+### 根据实际环境配置参数
+CHAIN="CUSTOM_FIREWALL"  # 使用大写表示常量
+DPORTS="9200"       # 支持多种格式：单个端口、逗号分隔列表、端口范围
+# DPORTS="9200,9201,9202"
+# DPORTS="9200,9201,5900:5950"
+PROTOCOL="tcp"           # 默认只处理TCP，可改为"udp"或添加多协议支持
+#################################
+
+# 初始化IP列表数组
+IP_LIST=()
+
+# 检查链是否存在
+chain_exists() {
+    iptables -w -t filter -nL "$CHAIN" >/dev/null 2>&1
+}
+
+# 检查并加载IP列表文件
+load_ip_list() {
+    if [[ -s "./ip.txt" ]]; then
+        # 使用mapfile更高效地读取文件
+        mapfile -t IP_LIST < <(sort -u ./ip.txt)
+    fi
+}
+
+# 备份当前iptables规则
+backup_rules() {
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    mkdir -p "./backups"
+    iptables-save > "./backups/iptables_${timestamp}.bak"
+    echo "规则已备份到: ./backups/iptables_${timestamp}.bak"
+}
+
+# 创建防火墙规则链
+create_chain() {
+    # 检查链是否存在
+    if chain_exists; then
+        echo "警告: 链 '$CHAIN' 已存在!"
+        read -p "是否继续操作？这将覆盖现有规则 [y/N]: " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || exit 1
+        cleanup_chain
+    fi
+    
+    # 创建自定义链
+    iptables -w -t filter -N "$CHAIN" 2>/dev/null || true
+    
+    # 1. 首先允许本地访问
+    iptables -w -t filter -A "$CHAIN" -m addrtype --src-type LOCAL -j ACCEPT
+    
+    # 2. 允许列表中的IP
+    for ip in "${IP_LIST[@]}"; do
+        iptables -w -t filter -A "$CHAIN" -s "$ip" -j ACCEPT
+    done
+    
+    # 3. 最后拒绝所有其他访问（仅在IP列表非空时）
+    if (( ${#IP_LIST[@]} > 0 )); then
+        iptables -w -t filter -A "$CHAIN" -j REJECT
+    fi
+    
+    # 将自定义链挂载到INPUT链（仅在IP列表非空时）
+    if (( ${#IP_LIST[@]} > 0 )); then
+        iptables -w -t filter -I INPUT -p "$PROTOCOL" -m multiport --dports "$DPORTS" -j "$CHAIN"
+    fi
+}
+
+# 清理防火墙规则链
+cleanup_chain() {
+    # 从INPUT链移除引用
+    while iptables -w -t filter -D INPUT -p "$PROTOCOL" -m multiport --dports "$DPORTS" -j "$CHAIN" 2>/dev/null; do
+        sleep 0.1
+    done
+    
+    # 清空并删除自定义链
+    iptables -w -t filter -F "$CHAIN" 2>/dev/null || true
+    iptables -w -t filter -X "$CHAIN" 2>/dev/null || true
+}
+
+# 显示帮助信息
+show_help() {
+    cat <<EOF
+防火墙管理脚本
+
+用法: $0 [命令]
+
+可用命令:
+  apply     应用防火墙规则（自动备份+清理+创建）
+  clean     清理防火墙规则（自动备份+清理）
+  backup    仅备份当前规则
+  status    显示当前规则状态
+  help      显示此帮助信息
+
+配置说明:
+  1. 修改脚本开头的 CHAIN、DPORTS 和 PROTOCOL 变量
+  2. 将允许的IP地址放入同目录下的 ip.txt 文件中
+EOF
+}
+
+# 显示当前规则状态
+show_status() {
+    echo "当前防火墙规则状态:"
+    echo "===================="
+    iptables -nL | grep -A10 "$CHAIN" || echo "自定义链 '$CHAIN' 不存在"
+    echo "===================="
+    echo "IP列表文件内容:"
+    [[ -s "./ip.txt" ]] && cat ./ip.txt || echo "ip.txt 文件为空或不存在"
+}
+
+# 主程序
+main() {
+    load_ip_list
+    
+    case "${1:-help}" in
+        "apply" )
+            echo "正在应用防火墙规则..."
+            backup_rules
+            create_chain
+            echo "防火墙规则已成功应用"
+            show_status
+            ;;
+        "clean" )
+            echo "正在清理防火墙规则..."
+            backup_rules
+            cleanup_chain
+            echo "防火墙规则已清理"
+            ;;
+        "backup" )
+            backup_rules
+            ;;
+        "status" )
+            show_status
+            ;;
+        * )
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
