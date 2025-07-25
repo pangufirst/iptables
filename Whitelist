@@ -99,6 +99,7 @@ show_help() {
 配置说明:
   1. 修改脚本开头的 CHAIN、DPORTS 和 PROTOCOL 变量
   2. 将允许的IP地址放入同目录下的 ip.txt 文件中
+  3. 每行一个IP地址，支持CIDR格式
 EOF
 }
 
