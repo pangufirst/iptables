@@ -1,0 +1,8 @@
+#​​ 清洗从网页复制的脚本
+# 修复 CSV/JSON 数据文件​​
+# 统一换行符​​：避免 \r\n在 Linux 中引发 ^M错误
+vi -n -c ":1,\$s/$(printf '\xc2\xa0')/$(printf '\x20')/g" -c ":set ff=unix" -c ":wq" xxxx.sh
+
+cat -A xxxx.sh
+# 所有空格显示为 $后的普通空格
+# 行末仅显示 $（无 ^M）
