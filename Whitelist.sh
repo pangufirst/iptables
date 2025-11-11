@@ -8,7 +8,7 @@ set -euo pipefail
 
 ### 配置参数
 CHAIN="CUSTOM_FIREWALL"
-DPORTS="9200,9201,5900:5950"  # 支持: 单个端口, 逗号分隔列表, 端口范围,iptables有端口数量上限，每个50个端口
+DPORTS="9200,9201,5900:5950"  # 支持: 单个端口, 逗号分隔列表, 端口范围,iptables有端口数量上限，限制15个端口
 PROTOCOLS=("tcp" "udp")  # 支持多协议
 ####################
 
